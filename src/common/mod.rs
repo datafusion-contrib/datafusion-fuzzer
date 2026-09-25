@@ -55,8 +55,10 @@ pub enum FuzzerDataType {
     IntervalMonthDayNano,
     // String type for text data
     String,
+    Int8Array,
     // List of Int32 values, the first (simplest) array type
     Int32Array,
+    Int64Array,
 }
 
 impl FuzzerDataType {
@@ -94,7 +96,9 @@ impl FuzzerDataType {
                 DataType::Interval(datafusion::arrow::datatypes::IntervalUnit::MonthDayNano)
             }
             FuzzerDataType::String => DataType::Utf8,
+            FuzzerDataType::Int8Array => DataType::new_list(DataType::Int8, true),
             FuzzerDataType::Int32Array => DataType::new_list(DataType::Int32, true),
+            FuzzerDataType::Int64Array => DataType::new_list(DataType::Int64, true),
         }
     }
 
@@ -127,8 +131,14 @@ impl FuzzerDataType {
                 Some(FuzzerDataType::IntervalMonthDayNano)
             }
             DataType::Utf8 => Some(FuzzerDataType::String),
+            DataType::List(field) if *field.data_type() == DataType::Int8 => {
+                Some(FuzzerDataType::Int8Array)
+            }
             DataType::List(field) if *field.data_type() == DataType::Int32 => {
                 Some(FuzzerDataType::Int32Array)
+            }
+            DataType::List(field) if *field.data_type() == DataType::Int64 => {
+                Some(FuzzerDataType::Int64Array)
             }
             _ => None,
         }
@@ -154,7 +164,9 @@ impl FuzzerDataType {
             FuzzerDataType::Timestamp => "timestamp",
             FuzzerDataType::IntervalMonthDayNano => "interval_month_day_nano",
             FuzzerDataType::String => "string",
+            FuzzerDataType::Int8Array => "int8_array",
             FuzzerDataType::Int32Array => "int32_array",
+            FuzzerDataType::Int64Array => "int64_array",
         }
     }
 
@@ -177,7 +189,9 @@ impl FuzzerDataType {
             | FuzzerDataType::Timestamp
             | FuzzerDataType::IntervalMonthDayNano
             | FuzzerDataType::String
-            | FuzzerDataType::Int32Array => false,
+            | FuzzerDataType::Int8Array
+            | FuzzerDataType::Int32Array
+            | FuzzerDataType::Int64Array => false,
         }
     }
 
@@ -200,7 +214,9 @@ impl FuzzerDataType {
             | FuzzerDataType::Boolean
             | FuzzerDataType::Decimal
             | FuzzerDataType::String
-            | FuzzerDataType::Int32Array => false,
+            | FuzzerDataType::Int8Array
+            | FuzzerDataType::Int32Array
+            | FuzzerDataType::Int64Array => false,
         }
     }
 
@@ -236,7 +252,9 @@ impl FuzzerDataType {
             FuzzerDataType::Timestamp => "TIMESTAMP",
             FuzzerDataType::IntervalMonthDayNano => "INTERVAL",
             FuzzerDataType::String => "VARCHAR",
+            FuzzerDataType::Int8Array => "TINYINT[]",
             FuzzerDataType::Int32Array => "INT[]",
+            FuzzerDataType::Int64Array => "BIGINT[]",
         }
     }
 }
@@ -274,7 +292,9 @@ pub fn init_available_data_types() {
             FuzzerDataType::Timestamp,
             FuzzerDataType::IntervalMonthDayNano,
             FuzzerDataType::String,
+            FuzzerDataType::Int8Array,
             FuzzerDataType::Int32Array,
+            FuzzerDataType::Int64Array,
         ]
     });
 }
@@ -436,56 +456,87 @@ mod tests {
     }
 
     #[test]
-    fn test_int32_array_type_properties() {
-        let array_type = FuzzerDataType::Int32Array;
+    fn test_array_type_properties() {
+        let cases = [
+            (
+                FuzzerDataType::Int8Array,
+                DataType::Int8,
+                "int8_array",
+                "TINYINT[]",
+            ),
+            (
+                FuzzerDataType::Int32Array,
+                DataType::Int32,
+                "int32_array",
+                "INT[]",
+            ),
+            (
+                FuzzerDataType::Int64Array,
+                DataType::Int64,
+                "int64_array",
+                "BIGINT[]",
+            ),
+        ];
 
-        assert_eq!(
-            array_type.to_datafusion_type(),
-            DataType::new_list(DataType::Int32, true)
-        );
-        assert_eq!(
-            FuzzerDataType::from_datafusion_type(&DataType::new_list(DataType::Int32, true)),
-            Some(FuzzerDataType::Int32Array)
-        );
-        assert_eq!(array_type.display_name(), "int32_array");
-        assert_eq!(array_type.to_sql_type(), "INT[]");
-        assert!(!array_type.is_numeric());
-        assert!(!array_type.is_time());
+        for (array_type, element_type, display_name, sql_type) in cases {
+            let list_type = DataType::new_list(element_type, true);
+
+            assert_eq!(array_type.to_datafusion_type(), list_type);
+            assert_eq!(
+                FuzzerDataType::from_datafusion_type(&list_type),
+                Some(array_type.clone())
+            );
+            assert_eq!(array_type.display_name(), display_name);
+            assert_eq!(array_type.to_sql_type(), sql_type);
+            assert!(!array_type.is_numeric());
+            assert!(!array_type.is_time());
+        }
     }
 
     /// End-to-end example: the exact SQL shapes the fuzzer generates for
-    /// Int32Array must be accepted by DataFusion (DDL, INSERT and SELECT).
+    /// array types must be accepted by DataFusion (DDL, INSERT and SELECT).
     #[tokio::test]
-    async fn test_int32_array_end_to_end() {
+    async fn test_array_types_end_to_end() {
         use datafusion::prelude::SessionContext;
 
-        let ctx = SessionContext::new();
-        ctx.sql("CREATE TABLE arr_example (id INT, vals INT[])")
-            .await
-            .unwrap()
-            .collect()
-            .await
-            .unwrap();
-        ctx.sql("INSERT INTO arr_example VALUES (1, [1, 2, 3]), (2, [-5]), (3, NULL)")
-            .await
-            .unwrap()
-            .collect()
-            .await
-            .unwrap();
+        let array_types = [
+            FuzzerDataType::Int8Array,
+            FuzzerDataType::Int32Array,
+            FuzzerDataType::Int64Array,
+        ];
 
-        let batches = ctx
-            .sql("SELECT vals FROM arr_example")
+        for array_type in array_types {
+            let ctx = SessionContext::new();
+            ctx.sql(&format!(
+                "CREATE TABLE arr_example (id INT, vals {})",
+                array_type.to_sql_type()
+            ))
             .await
             .unwrap()
             .collect()
             .await
             .unwrap();
-        let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-        assert_eq!(total_rows, 3);
-        assert_eq!(
-            batches[0].schema().field(0).data_type(),
-            &DataType::new_list(DataType::Int32, true)
-        );
+            ctx.sql("INSERT INTO arr_example VALUES (1, [1, 2, 3]), (2, [-5]), (3, NULL)")
+                .await
+                .unwrap()
+                .collect()
+                .await
+                .unwrap();
+
+            let batches = ctx
+                .sql("SELECT vals FROM arr_example")
+                .await
+                .unwrap()
+                .collect()
+                .await
+                .unwrap();
+            let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+            assert_eq!(total_rows, 3);
+            assert_eq!(
+                batches[0].schema().field(0).data_type(),
+                &array_type.to_datafusion_type()
+            );
+        }
     }
 
     #[test]
