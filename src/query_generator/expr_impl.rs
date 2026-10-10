@@ -12,7 +12,8 @@ use crate::common::{
 /// To add new expressions: Add a new variant to [`BaseExpr`] and then follow the pattern along.
 /// - [x] Numeric Operators: +, -, *, /, %
 /// - [x] Comparison Operators: =, !=, <, <=, >, >=, <=>, IS DISTINCT FROM, IS NOT DISTINCT FROM, ~, ~*, !~, !~*, ~~ (LIKE), ~~* (ILIKE), !~~ (NOT LIKE), !~~* (NOT ILIKE)
-/// - [x] Logical Operators: AND, OR
+/// - [x] Logical Operators: AND, OR, NOT
+/// - [x] Null Predicates: IS NULL, IS NOT NULL
 /// - [ ] Bitwise Operators: &, |, #, >>, <<
 /// - [ ] Other Operators: || (concat), @> (contains), <@ (contained by)
 /// - [x] Time and Date Functions: current_date, current_time, current_timestamp, date_format, now, to_char, to_date, to_local_time, to_timestamp, to_timestamp_micros, to_timestamp_millis, to_timestamp_nanos, to_timestamp_seconds, to_unixtime, today
@@ -208,6 +209,70 @@ impl BaseExprWithInfo for OrExpr {
             Operator::Or,
             Box::new(child_exprs[1].clone()),
         ))
+    }
+}
+
+pub struct NotExpr;
+impl BaseExprWithInfo for NotExpr {
+    fn describe(&self) -> ExprWrapper {
+        let return_types = vec![FuzzerDataType::Boolean.to_datafusion_type()];
+
+        ExprWrapper {
+            expr: BaseExpr::Not,
+            return_type: return_types,
+            inferred_child_signature: vec![vec![TypeGroup::SameAsOutput]],
+        }
+    }
+
+    fn build_expr(&self, child_exprs: &[Expr]) -> Expr {
+        Expr::Not(Box::new(child_exprs[0].clone()))
+    }
+}
+
+// ========================
+// Null Predicates
+// ========================
+pub struct IsNullExpr;
+impl BaseExprWithInfo for IsNullExpr {
+    fn describe(&self) -> ExprWrapper {
+        let return_types = vec![FuzzerDataType::Boolean.to_datafusion_type()];
+
+        ExprWrapper {
+            expr: BaseExpr::IsNull,
+            return_type: return_types,
+            inferred_child_signature: vec![vec![TypeGroup::OneOf(
+                get_available_data_types()
+                    .iter()
+                    .map(|t| t.to_datafusion_type())
+                    .collect(),
+            )]],
+        }
+    }
+
+    fn build_expr(&self, child_exprs: &[Expr]) -> Expr {
+        Expr::IsNull(Box::new(child_exprs[0].clone()))
+    }
+}
+
+pub struct IsNotNullExpr;
+impl BaseExprWithInfo for IsNotNullExpr {
+    fn describe(&self) -> ExprWrapper {
+        let return_types = vec![FuzzerDataType::Boolean.to_datafusion_type()];
+
+        ExprWrapper {
+            expr: BaseExpr::IsNotNull,
+            return_type: return_types,
+            inferred_child_signature: vec![vec![TypeGroup::OneOf(
+                get_available_data_types()
+                    .iter()
+                    .map(|t| t.to_datafusion_type())
+                    .collect(),
+            )]],
+        }
+    }
+
+    fn build_expr(&self, child_exprs: &[Expr]) -> Expr {
+        Expr::IsNotNull(Box::new(child_exprs[0].clone()))
     }
 }
 
@@ -1138,5 +1203,45 @@ impl BaseExprWithInfo for TodayExpr {
             today_udf,
             vec![], // No arguments for today
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::{init_available_data_types, util::to_sql_string};
+    use datafusion::prelude::col;
+
+    #[test]
+    fn not_and_null_predicates_return_boolean() {
+        init_available_data_types();
+        let exprs: [Box<dyn BaseExprWithInfo>; 3] = [
+            Box::new(NotExpr),
+            Box::new(IsNullExpr),
+            Box::new(IsNotNullExpr),
+        ];
+        for expr in exprs {
+            let wrapper = expr.describe();
+            assert_eq!(wrapper.return_type, vec![DataType::Boolean]);
+            assert_eq!(wrapper.inferred_child_signature.len(), 1);
+            assert_eq!(wrapper.inferred_child_signature[0].len(), 1);
+        }
+    }
+
+    #[test]
+    fn not_and_null_predicates_unparse_to_sql() {
+        let child = [col("v1")];
+        assert_eq!(
+            to_sql_string(&NotExpr.build_expr(&child)).unwrap(),
+            "NOT v1"
+        );
+        assert_eq!(
+            to_sql_string(&IsNullExpr.build_expr(&child)).unwrap(),
+            "v1 IS NULL"
+        );
+        assert_eq!(
+            to_sql_string(&IsNotNullExpr.build_expr(&child)).unwrap(),
+            "v1 IS NOT NULL"
+        );
     }
 }
