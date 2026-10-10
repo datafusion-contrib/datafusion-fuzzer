@@ -87,7 +87,11 @@ static ERROR_PATTERNS: LazyLock<Vec<ErrorPattern>> = LazyLock::new(|| {
             error_sub: "regex parse error",
         },
         // Invalid JOIN ON expression like '... t1 natural join t2 on true'
-        ErrorPattern::Contains("SQL error: ParserError(\"Expected: end of statement, found: ON\")"),
+        // Newer sqlparser versions append the location, e.g.
+        // `found: ON at Line: 3, Column: 17`
+        ErrorPattern::RegexMatch(
+            r#"SQL error: ParserError\("Expected: end of statement, found: ON( at Line: \d+, Column: \d+)?"\)"#,
+        ),
         // For anti joins, the fuzzer might generate join predicates that referencing
         // eliminated columns from anti joins, example (note t0.flag is a valid column
         // from t0, but it's eliminated by the first RIGHT ANTI JOIN):
@@ -272,5 +276,21 @@ mod tests {
         let query = "SELECT to_date('abc', 'fmt')";
 
         assert!(is_error_whitelisted(error, Some(query)));
+    }
+
+    #[test]
+    fn whitelists_join_on_parser_errors_with_and_without_location() {
+        let with_location = "Query planning failed: SQL error: ParserError(\"Expected: end of statement, found: ON at Line: 3, Column: 17\")";
+        let without_location = "Query planning failed: SQL error: ParserError(\"Expected: end of statement, found: ON\")";
+
+        assert!(is_error_whitelisted(with_location, None));
+        assert!(is_error_whitelisted(without_location, None));
+    }
+
+    #[test]
+    fn does_not_whitelist_other_end_of_statement_parser_errors() {
+        let error = "Query planning failed: SQL error: ParserError(\"Expected: end of statement, found: ONLY at Line: 1, Column: 5\")";
+
+        assert!(!is_error_whitelisted(error, None));
     }
 }
