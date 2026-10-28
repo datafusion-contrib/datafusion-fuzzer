@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: See the NOTICE file distributed with this work for additional information regarding copyright ownership
+# SPDX-FileContributor: Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements
+
 name: Test Suite
 
 on:
@@ -6,6 +10,23 @@ on:
   workflow_dispatch:
 
 jobs:
+  license:
+    name: License headers
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install HawkEye
+        uses: taiki-e/install-action@v2
+        with:
+          tool: hawkeye@7.2.0
+
+      - name: Check license headers
+        run: hawkeye check --fail-on-unknown
+
   integration-test:
     runs-on: ubuntu-latest
     permissions:

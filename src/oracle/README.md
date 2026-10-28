@@ -1,3 +1,9 @@
+<!--
+SPDX-License-Identifier: Apache-2.0
+SPDX-FileCopyrightText: See the NOTICE file distributed with this work for additional information regarding copyright ownership
+SPDX-FileContributor: Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements
+-->
+
 # Oracle System
 
 The Oracle system provides a framework for testing query consistency and correctness in DataFusion. It supports both traditional query equivalence testing and configuration consistency testing.

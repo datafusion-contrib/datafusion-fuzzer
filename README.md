@@ -1,3 +1,9 @@
+<!--
+SPDX-License-Identifier: Apache-2.0
+SPDX-FileCopyrightText: See the NOTICE file distributed with this work for additional information regarding copyright ownership
+SPDX-FileContributor: Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements
+-->
+
 # DataFusion Fuzzer
 
 A fuzzing tool for Apache DataFusion that tests SQL query execution and helps find potential bugs, crashes, and inconsistencies in query results.
@@ -104,3 +110,7 @@ The runner currently chooses one oracle at random for each test case:
 ### Infrastructure
 - [x] CLI
 - [x] Oracle interface
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
